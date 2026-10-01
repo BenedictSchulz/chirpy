@@ -14,6 +14,7 @@ func main() {
 	fsHandler := http.StripPrefix("/app", http.FileServer(http.Dir(filepathRoot)))
 	mux.Handle("/app/", fsHandler)
 
+	mux.HandleFunc("GET /api/healthz", handlerReadiness)	
 
 	srv := &http.Server{
 		Addr: ":" + port,
