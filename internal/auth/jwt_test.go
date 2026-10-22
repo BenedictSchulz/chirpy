@@ -4,58 +4,74 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
 
-func TestMakeAndValidateJWT(t *testing.T) {
+func TestValidateJWT(t *testing.T) {
 	userID := uuid.New()
-	secret := "test-secret"
-	expiresIn := time.Hour
+	validToken, _ := MakeJWT(userID, "secret", time.Hour)
+	expiredToken, _ := MakeJWT(userID, "secret", -time.Hour)
+	wrongIssuerToken, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
+		Issuer:    "someone-else",
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		Subject:   userID.String(),
+	}).SignedString([]byte("secret"))
 
-	tokenString, err := MakeJWT(userID, secret, expiresIn)
-	if err != nil {
-		t.Fatalf("making JWT: %v", err)
+	tests := []struct {
+		name        string
+		tokenString string
+		tokenSecret string
+		wantUserID  uuid.UUID
+		wantErr     bool
+	}{
+		{
+			name:        "Valid token",
+			tokenString: validToken,
+			tokenSecret: "secret",
+			wantUserID:  userID,
+			wantErr:     false,
+		},
+		{
+			name:        "Invalid token",
+			tokenString: "invalid.token.string",
+			tokenSecret: "secret",
+			wantUserID:  uuid.Nil,
+			wantErr:     true,
+		},
+		{
+			name:        "Wrong secret",
+			tokenString: validToken,
+			tokenSecret: "wrong_secret",
+			wantUserID:  uuid.Nil,
+			wantErr:     true,
+		},
+		{
+			name:        "Expired token",
+			tokenString: expiredToken,
+			tokenSecret: "secret",
+			wantUserID:  uuid.Nil,
+			wantErr:     true,
+		},
+		{
+			name:        "Wrong issuer",
+			tokenString: wrongIssuerToken,
+			tokenSecret: "secret",
+			wantUserID:  uuid.Nil,
+			wantErr:     true,
+		},
 	}
 
-	validatedUserID, err := ValidateJWT(tokenString, secret)
-	if err != nil {
-		t.Fatalf("validate JWT: %v", err)
-	}
-
-	if validatedUserID != userID {
-		t.Errorf("got %+v, want %+v", validatedUserID, userID)
-	}
-}
-
-func TestRejectExpiredToken(t *testing.T) {
-	userID := uuid.New()
-	secret := "test-secret"
-	expiresIn := -time.Hour
-
-	tokenString, err := MakeJWT(userID, secret, expiresIn)
-	if err != nil {
-		t.Fatalf("making JWT: %v", err)
-	}
-
-	_, err = ValidateJWT(tokenString, secret)
-	if err == nil {
-		t.Fatalf("expected expired token to be rejected")
-	}
-}
-
-func TestRejectWrongSecret(t *testing.T) {
-	userID := uuid.New()
-	secret := "test-secret"
-	wrongSecret := "wrong-secret"
-	expiresIn := time.Hour
-
-	tokenString, err := MakeJWT(userID, secret, expiresIn)
-	if err != nil {
-		t.Fatalf("making JWT: %v", err)
-	}
-
-	_, err = ValidateJWT(tokenString, wrongSecret)
-	if err == nil {
-		t.Fatalf("expected wrong secret to be rejected")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotUserID, err := ValidateJWT(tt.tokenString, tt.tokenSecret)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateJWT() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if gotUserID != tt.wantUserID {
+				t.Errorf("ValidateJWT() gotUserID = %v, want %v", gotUserID, tt.wantUserID)
+			}
+		})
 	}
 }
